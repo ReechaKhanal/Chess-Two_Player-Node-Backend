@@ -1,6 +1,6 @@
-const webSocketsServerPort = process.env.PORT || 8000;
-const webSocketServer = require('websocket').server;
-const http = require('http');
+const webSocketsServerPort = process.env.PORT || 8000; // defining a port where our server will be listening to
+const webSocketServer = require('websocket').server; // use websockets
+const http = require('http'); // using http
 
 // Spinning the http server and the websocket server
 const server = http.createServer();
@@ -14,55 +14,52 @@ const getUniqueID = () => {
     const s4 = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
     return s4() + s4() + '-' + s4()
 };
+  
+const clients = {}; // client maintains all active connections 
+const users = {}; // contains all active users in this object
 
-// I am maintaining all active connections in this object.
-const clients = {};
-// I am maintaining all active users in this object
-const users = {};
-// The current State of the board is maininted here
-let boardState = null;
-// User activity history
-let userActivity = [];
+let boardState = null; // store the current state of the board 
+let userActivity = []; // User activity history
 
-// Hold rooms below
-const rooms = {}
+const rooms = {}; // store all the rooms and room information here [users in the room - username and userID]
 
-//let currentUsers = null, userActivity = null , username = null, stateBoard = null, selectedPiece = null, turn = null, 
-//    takenWhitePieces = null, takenBlackPieces = null, win = null, check = null, whiteHasMoved = null, blackHasMoved = null;
-
+// We are sending the current data to all connected clients in a particular room
 const sendMessage = (json, roomName) => {
-    // We are sending the current data to all connected clients in a particular room
-    if (json === '{"type":"userevent","data":{"error":"e"}}'){
-        console.log('This ??') //This is where we take care of the problem when a third person tries to enter a fully occupied room
-    }
 
-    let list_of_clients = rooms[roomName];
-    let i = 0;
+    let list_of_clients = rooms[roomName]; // get all the clients or users under a particular room
+    let i = 0; // initialize a variable, this variable will be later used to go through clients in the room
+
     if(list_of_clients){
+        // code will reach this point only if there are clients associated with a room
         for (i=0; i< list_of_clients.length; i++){
-            clients[list_of_clients[i]].sendUTF(json)
+            clients[list_of_clients[i][0]].sendUTF(json) // send all connected clients/users the updated date
         }
     }
 }
 
+// defining types of message or request that can be received from a client
 const typesDef = {
+    // userevent is a login request
+    // content change is after login and when the game is being played
     USER_EVENT: "userevent",
     CONTENT_CHANGE: "contentchange"
 }
 
 wsServer.on('request', function(request) {
-    var userID = getUniqueID();
-    console.log((new Date()) + ' Received a new connection from origin ' + request.origin + '.')
 
-    /* This part of code can also be re-written to accept only the requests from allowed origins */
-    // we accept a connection request
+    // a connection request came in an we accept the connection request
     const connection = request.accept(null, request.origin);
+    console.log((new Date()) + ' A new connection established with a client from origin: ' + request.origin + '.')
+    
+    // as soon as a connection comes in and gets accepted we generate a uniqueID for that particular user or connection.
+    var userID = getUniqueID();
+
     clients[userID] = connection; // Assigning a userid to a connection
 
     console.log('connected: ' + userID + ' in ' + Object.getOwnPropertyNames(clients));
 
     connection.on('message', function(message){
-        
+
         if (message.type === 'utf8'){
             const dataFromClient = JSON.parse(message.utf8Data);
             const json = { type: dataFromClient.type }
@@ -73,12 +70,14 @@ wsServer.on('request', function(request) {
                 var test = true
                 var color = "white" // a player will be initially assigned a color 'White'
 
-                if (rooms[dataFromClient.username]){ // This if statement checks if there is a room already existing for a given username.
-                    if (rooms[dataFromClient.username].length == 2){
+                if (rooms[dataFromClient.roomname]){ // This if statement checks if there is a room already existing for a given roomname.
+                    if (rooms[dataFromClient.roomname].length == 2){
                         test = false
                         // we allow no additional players
+                        console.log("The specified room is Full, please select a new room")
                         json.data = "e";
-                        delete clients[userID];
+                        // Not sure if we should do this
+                        delete clients[userID]; // the userID and the connection will be removed from our list
                         connection.sendUTF(JSON.stringify(json));
                     }else{
                         // this should mean that the room was waiting for a second player and is now complete, the player coming second to the room should be assigned a "Black" color
@@ -86,24 +85,24 @@ wsServer.on('request', function(request) {
                     }
                 }
                 if(test == true){
-
                     // Somewhere within this if statement
                     users[userID] = dataFromClient;
-                    userActivity.push(`${dataFromClient.playername} joined ${dataFromClient.username}`);
+                    userActivity.push(`${dataFromClient.playername} joined ${dataFromClient.roomname}`);
                 
                     // Put all the users in a room together
-                    if (rooms[dataFromClient.username]){
-                        console.log((rooms[dataFromClient.username]).type)
-                        rooms[dataFromClient.username].push(userID)
-                    
+                    if (rooms[dataFromClient.roomname]){
+                        console.log((rooms[dataFromClient.roomname]).type)
+                        rooms[dataFromClient.roomname].push([userID, dataFromClient.playername])
                     }else{
-                        rooms[dataFromClient.username] = [userID];
+                        console.log('Here');
+                        rooms[dataFromClient.roomname] = [[userID, dataFromClient.playername]];
+                        console.log(rooms)
                     }
-                    console.log(rooms[dataFromClient.username])
+                    console.log(rooms[dataFromClient.roomname])
                     
                     json.data = {users, userActivity, color}
                     console.log(json)
-                    sendMessage(JSON.stringify(json), dataFromClient.username);
+                    sendMessage(JSON.stringify(json), dataFromClient.roomname);
                 }// end if test == True
             } 
             else if (dataFromClient.type === typesDef.CONTENT_CHANGE) {
@@ -112,7 +111,8 @@ wsServer.on('request', function(request) {
                 boardState.userActivity = userActivity;
                 json.data = {boardState};
                 console.log(json)
-                sendMessage(JSON.stringify(json), dataFromClient.username);
+                console.log(rooms)
+                sendMessage(JSON.stringify(json), dataFromClient.roomname);
             }
         }
     });
@@ -123,21 +123,49 @@ wsServer.on('request', function(request) {
         // if not no need to worry about it coz it was prolly a false alarm
         const json = { type: typesDef.USER_EVENT };
 
-        if(users[userID]){
-            
-            console.log('I will be called only some times')       
+        if(users[userID]){ // only if the userID id in our records      
             console.log((new Date()) + " Peer " + userID + " disconnected.");
-            console.log(`${users[userID].username} left`)
-            userActivity.push(`a player left ${users[userID].username}`);
-            // userActivity.push(`${dataFromClient.playername} left ${dataFromClient.username}`);
+            console.log(`${users[userID].playername} left ${users[userID].roomname}`)
+            userActivity.push(`${users[userID].playername} left ${users[userID].roomname}`);
+            
+            // We will delete the user from our room information now
+            let room_name = users[userID].roomname; // the room name the user belongs to
+            let room_info = rooms[room_name]; // the room information of the user's room
+            
+            console.log(rooms);
 
-            // Somewhere here - when both players leave a room - we can delete the room as a whole
-            // This will help us reuse the rooms for other playes
+            // userID and username of the person
+            let user_who_just_left = [userID, users[userID].playername];
+            //var index = room_info.indexOf(user_who_just_left)
+            
+            var i; 
+            new_room_info = [];
+            for (i=0; i<room_info.length; i++){
+                console.log(room_info[i]);
+                if((room_info[i][0] == user_who_just_left[0]) && (room_info[i][1] == user_who_just_left[1])){
+                    // do nothing
+                }else{
+                    new_room_info.push(room_info[i]);
+                }
+            }
+            
+            room_info = new_room_info;
 
+            // delete and update the rooms folder to contain only the users that are in that particular room
+            //room_info = room_info.splice(index, 1);
+            rooms[room_name] = new_room_info;
+
+            // delete a room from our records complety when no users are left in the room
+            console.log(rooms)
+            console.log(rooms[room_name].length)
+            if(rooms[room_name].length == 0){
+                console.log("Deleting this Room, no user left here !!");
+                delete rooms[room_name];
+            }
+            
             json.data = { users, userActivity };
             delete clients[userID];
             delete users[userID];
-
             sendMessage(JSON.stringify.json);
         }
     });
