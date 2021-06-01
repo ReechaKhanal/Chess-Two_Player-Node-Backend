@@ -161,6 +161,7 @@ wsServer.on('request', function(request) {
             if(rooms[room_name].length == 0){
                 console.log("Deleting this Room, no user left here !!");
                 delete rooms[room_name];
+                userActivity = [];
             }
             
             json.data = { users, userActivity };
